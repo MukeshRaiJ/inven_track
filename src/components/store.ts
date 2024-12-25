@@ -1,6 +1,6 @@
-// src/lib/store.ts
+// store.ts
 import { create } from "zustand";
-import { Product, ProductInput } from "@/components/types_one";
+import { Product, ProductFormData } from "./types";
 
 interface PaginatedProducts {
   items: Product[];
@@ -16,8 +16,8 @@ interface ProductStore {
     limit: number,
     search?: string
   ) => Promise<void>;
-  addProduct: (product: ProductInput) => Promise<void>;
-  updateProduct: (id: number, updates: ProductInput) => Promise<void>;
+  addProduct: (product: ProductFormData) => Promise<void>;
+  updateProduct: (id: number, updates: ProductFormData) => Promise<void>;
   deleteProduct: (id: number) => Promise<void>;
 }
 
@@ -38,7 +38,29 @@ const useStore = create<ProductStore>((set, get) => ({
       const response = await fetch(`/api/products?${queryParams}`);
       if (!response.ok) throw new Error("Failed to fetch products");
       const data = await response.json();
-      set({ products: data, loading: false });
+
+      // Transform the data to ensure proper types
+      const transformedItems = data.items.map((item: any) => ({
+        ...item,
+        retail_price: Number(item.retail_price),
+        quantity: Number(item.quantity),
+        min_stock_level: Number(item.min_stock_level),
+        size: item.size
+          ? {
+              ...item.size,
+              uk_size: Number(item.size.uk_size),
+              india_size: Number(item.size.india_size),
+            }
+          : undefined,
+      }));
+
+      set({
+        products: {
+          items: transformedItems,
+          total: data.total,
+        },
+        loading: false,
+      });
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Unknown error",
@@ -48,23 +70,37 @@ const useStore = create<ProductStore>((set, get) => ({
     }
   },
 
-  addProduct: async (product) => {
+  addProduct: async (product: ProductFormData) => {
     try {
       const response = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(product),
       });
+
       if (!response.ok) throw new Error("Failed to add product");
       const newProduct = await response.json();
 
-      // Refresh the current page after adding
-      const { products } = get();
+      // Transform the new product data
+      const transformedProduct = {
+        ...newProduct,
+        retail_price: Number(newProduct.retail_price),
+        quantity: Number(newProduct.quantity),
+        min_stock_level: Number(newProduct.min_stock_level),
+        size: newProduct.size
+          ? {
+              ...newProduct.size,
+              uk_size: Number(newProduct.size.uk_size),
+              india_size: Number(newProduct.size.india_size),
+            }
+          : undefined,
+      };
+
       set((state) => ({
         products: {
-          ...products,
-          items: [...products.items, newProduct].slice(0, 10), // Keep only first page
-          total: products.total + 1,
+          ...state.products,
+          items: [...state.products.items, transformedProduct],
+          total: state.products.total + 1,
         },
       }));
     } catch (error) {
@@ -72,20 +108,37 @@ const useStore = create<ProductStore>((set, get) => ({
     }
   },
 
-  updateProduct: async (id, updates) => {
+  updateProduct: async (id: number, updates: ProductFormData) => {
     try {
       const response = await fetch(`/api/products/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
+
       if (!response.ok) throw new Error("Failed to update product");
       const updatedProduct = await response.json();
+
+      // Transform the updated product data
+      const transformedProduct = {
+        ...updatedProduct,
+        retail_price: Number(updatedProduct.retail_price),
+        quantity: Number(updatedProduct.quantity),
+        min_stock_level: Number(updatedProduct.min_stock_level),
+        size: updatedProduct.size
+          ? {
+              ...updatedProduct.size,
+              uk_size: Number(updatedProduct.size.uk_size),
+              india_size: Number(updatedProduct.size.india_size),
+            }
+          : undefined,
+      };
+
       set((state) => ({
         products: {
           ...state.products,
           items: state.products.items.map((p) =>
-            p.id === id ? updatedProduct : p
+            p.product_id === id ? transformedProduct : p
           ),
         },
       }));
@@ -94,13 +147,14 @@ const useStore = create<ProductStore>((set, get) => ({
     }
   },
 
-  deleteProduct: async (id) => {
+  deleteProduct: async (id: number) => {
     try {
       const response = await fetch(`/api/products/${id}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Failed to delete product");
+
       set((state) => ({
         products: {
-          items: state.products.items.filter((p) => p.id !== id),
+          items: state.products.items.filter((p) => p.product_id !== id),
           total: state.products.total - 1,
         },
       }));
